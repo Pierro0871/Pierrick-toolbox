@@ -1,6 +1,6 @@
 # 🧰 Pierrick Toolbox
 
-Application Android (Kotlin + Jetpack Compose, Material 3) regroupant 35 outils du quotidien, avec recherche et favoris (appui long pour épingler ⭐) :
+Application Android (Kotlin + Jetpack Compose, Material 3) regroupant 36 outils (dont un 🛡️ bloqueur de sites par VPN local) du quotidien, avec recherche et favoris (appui long pour épingler ⭐) :
 
 | Pratique | Calculs | Organisation | Divers |
 |---|---|---|---|

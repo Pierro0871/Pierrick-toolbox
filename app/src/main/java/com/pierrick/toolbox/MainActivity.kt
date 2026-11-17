@@ -64,6 +64,7 @@ enum class Tool(val emoji: String, val title: String) {
     METRONOME("🥁", "Métronome"),
     TUNER("🎸", "Accordeur"),
     MORSE("📡", "Morse & tableau"),
+    BLOCKER("🛡️", "Bloqueur de sites"),
 }
 
 fun prefs(ctx: Context) = ctx.getSharedPreferences("toolbox", Context.MODE_PRIVATE)
@@ -148,6 +149,7 @@ fun App(themeMode: Int, onToggleTheme: () -> Unit) {
                 Tool.METRONOME -> MetronomeScreen()
                 Tool.TUNER -> TunerScreen()
                 Tool.MORSE -> MorseScreen()
+                Tool.BLOCKER -> BlockerScreen()
             }
         }
     }
