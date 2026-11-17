@@ -10,8 +10,8 @@ android {
         applicationId = "com.pierrick.toolbox"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "2.1"
+        versionCode = 4
+        versionName = "3.0"
     }
     buildTypes { release { isMinifyEnabled = false } }
     compileOptions {
@@ -20,6 +20,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    testOptions { unitTests.isReturnDefaultValues = true }
 }
 dependencies {
     val bom = platform("androidx.compose:compose-bom:2024.12.01")
@@ -31,7 +32,14 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.3")
+    testImplementation("junit:junit:4.13.2")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
+    implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:translate:17.0.3")
+    implementation("com.google.mlkit:language-id:17.0.6")
     val camerax = "1.4.1"
     implementation("androidx.camera:camera-camera2:$camerax")
     implementation("androidx.camera:camera-lifecycle:$camerax")

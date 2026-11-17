@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="horizontal" android:background="@drawable/widget_bg" android:padding="6dp">
+    <TextView android:id="@+id/w_home" style="@style/WBtn" android:text="🧰\nToolbox" />
+    <TextView android:id="@+id/w_torch" style="@style/WBtn" android:text="🔦\nLampe" />
+    <TextView android:id="@+id/w_qr" style="@style/WBtn" android:text="📷\nQR" />
+    <TextView android:id="@+id/w_calc" style="@style/WBtn" android:text="🧮\nCalcul" />
+    <TextView android:id="@+id/w_shop" style="@style/WBtn" android:text="🛒\nCourses" />
+    <TextView android:id="@+id/w_notes" style="@style/WBtn" android:text="📝\nNotes" />
+</LinearLayout>

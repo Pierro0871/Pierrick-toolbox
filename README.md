@@ -1,6 +1,6 @@
 # 🧰 Pierrick Toolbox
 
-Application Android (Kotlin + Jetpack Compose, Material 3) regroupant 36 outils (dont un 🛡️ bloqueur de sites par VPN local) du quotidien, avec recherche et favoris (appui long pour épingler ⭐) :
+Application Android (Kotlin + Jetpack Compose, Material 3) regroupant **117 outils** classés en 12 catégories (dont un 🛡️ bloqueur de sites par VPN local avec mode focus, planning et code PIN) du quotidien, avec recherche et favoris (appui long pour épingler ⭐) :
 
 | Pratique | Calculs | Organisation | Divers |
 |---|---|---|---|
@@ -22,3 +22,15 @@ Application Android (Kotlin + Jetpack Compose, Material 3) regroupant 36 outils 
 - **Local** : `./gradlew assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`
 
 Android 8.0+ requis. Autoriser « installation depuis des sources inconnues » pour installer l'APK.
+
+### v3 — 80 nouveautés
+- **Focus & sécurité** : mode focus minuté, planning de blocage, code PIN du bloqueur, temps d'écran et limites par appli, coffre à mots de passe chiffré (empreinte), analyse de liens suspects, détecteur de caméra cachée
+- **Photo** : texte depuis photo (OCR), traduction de photo, pipette couleur, compression, suppression EXIF/GPS, création de GIF, mesure par caméra, comptage sur photo
+- **Audio** : dictaphone, dictée vocale, lecture à voix haute, générateur de fréquence, test HP + éjection d'eau, spectre, faux appel
+- **Calculs & argent** : scientifique, équations, fractions, règle de trois, moyenne, jours ouvrés/fériés, Ohm & résistances, allure de course, crypto, salaire brut/net, épargne, inflation, heures travaillées, abonnements
+- **Organisation & maison** : agenda, kanban, objectifs, journal, cartes de fidélité, recettes, menus, conversions cuisine, peinture/carrelage, inventaire, garanties, objets prêtés, entretien voiture, tailles
+- **Santé** : poids, HIIT, respiration, méditation, pouls par caméra, sommeil, réflexes
+- **Voyage** : GPS, compteur de vitesse, traducteur, soleil & lune, distances, infos pays, prix des carburants, parking, check-list valise
+- **Téléphone** : fichiers, nettoyeur (gros fichiers, doublons), applis & permissions, test écran, capteurs, sauvegarde/restauration
+- **Fun** : roue de la fortune, équipes, pendule d'échecs, pseudos, quiz, mémoire, citation du jour
+- **Android** : widget écran d'accueil + tuiles réglages rapides (lampe, bloqueur)

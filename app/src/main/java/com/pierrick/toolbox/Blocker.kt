@@ -8,6 +8,7 @@ import android.os.ParcelFileDescriptor
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -51,6 +52,22 @@ object BlockList {
 
     fun normalize(s: String) = s.trim().lowercase().removePrefix("https://").removePrefix("http://").removePrefix("www.").substringBefore('/').substringBefore(':')
 
+    fun focusUntil(ctx: Context) = prefs(ctx).getLong("bl_focus_until", 0L)
+    fun focusActive(ctx: Context) = focusUntil(ctx) > System.currentTimeMillis()
+    fun schedules(ctx: Context): List<org.json.JSONObject> = loadList(ctx, "bl_sched")
+    fun scheduleOn(ctx: Context) = prefs(ctx).getBoolean("bl_sched_on", false)
+
+    /** Le blocage s'applique-t-il en ce moment ? (mode focus > planning > toujours) */
+    fun activeNow(ctx: Context): Boolean {
+        if (focusActive(ctx)) return true
+        if (!scheduleOn(ctx)) return true
+        val now = java.time.LocalDateTime.now(); val t = now.toLocalTime().toString().take(5); val dow = now.dayOfWeek.value
+        return schedules(ctx).any { s ->
+            val days = s.optString("days"); val a = s.optString("start"); val b = s.optString("end")
+            dow.toString() in days && (if (a <= b) t >= a && t < b else t >= a || t < b)
+        }
+    }
+
     fun isBlocked(domain: String, set: Set<String>): Boolean {
         var d = domain.lowercase().trimEnd('.')
         while (true) {
@@ -73,7 +90,7 @@ class BlockerVpnService : VpnService() {
     private val pool = Executors.newFixedThreadPool(8)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == STOP) { stopVpn(); stopSelf(); return START_NOT_STICKY }
+        if (intent?.action == STOP) { if (!BlockList.focusActive(this)) { stopVpn(); stopSelf() }; return START_NOT_STICKY }
         if (running) return START_STICKY
         tun = Builder().setSession("Toolbox – bloqueur")
             .addAddress("10.111.222.1", 32)
@@ -92,11 +109,11 @@ class BlockerVpnService : VpnService() {
         val input = FileInputStream(fd.fileDescriptor)
         val output = FileOutputStream(fd.fileDescriptor)
         val buf = ByteArray(32767)
-        var blocked = BlockList.all(this); var lastLoad = System.currentTimeMillis()
+        var blocked = if (BlockList.activeNow(this)) BlockList.all(this) else emptySet(); var lastLoad = System.currentTimeMillis()
         try {
             while (running) {
                 val n = input.read(buf); if (n <= 0) continue
-                if (System.currentTimeMillis() - lastLoad > 3000) { blocked = BlockList.all(this); lastLoad = System.currentTimeMillis() }
+                if (System.currentTimeMillis() - lastLoad > 3000) { blocked = if (BlockList.activeNow(this)) BlockList.all(this) else emptySet(); lastLoad = System.currentTimeMillis() }
                 val pkt = buf.copyOf(n)
                 if ((pkt[0].toInt() shr 4) != 4 || pkt[9].toInt() != 17) continue // IPv4 + UDP seulement
                 val ihl = (pkt[0].toInt() and 0x0F) * 4
@@ -166,49 +183,134 @@ class BlockerVpnService : VpnService() {
 @Composable
 fun BlockerScreen() {
     val ctx = LocalContext.current
+    val p = prefs(ctx)
     var on by remember { mutableStateOf(BlockerVpnService.running) }
     var custom by remember { mutableStateOf(BlockList.custom(ctx)) }
     var presets by remember { mutableStateOf(BlockList.enabledPresets(ctx)) }
     var input by remember { mutableStateOf("") }
     var count by remember { mutableIntStateOf(BlockerVpnService.blockedCount) }
     var recent by remember { mutableStateOf(listOf<String>()) }
+    var focusLeft by remember { mutableLongStateOf(0L) }
+    var activeNow by remember { mutableStateOf(true) }
+    var schedOn by remember { mutableStateOf(BlockList.scheduleOn(ctx)) }
+    val (sched, saveSched) = rememberStoredList("bl_sched")
+    var hasPin by remember { mutableStateOf(p.getString("bl_pin", null) != null) }
+    var pinPrompt by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var pinEntry by remember { mutableStateOf("") }
+    var pinErr by remember { mutableStateOf(false) }
+    var newPin by remember { mutableStateOf("") }
+    var focusMin by remember { mutableIntStateOf(60) }
     LaunchedEffect(Unit) {
         while (true) {
             on = BlockerVpnService.running; count = BlockerVpnService.blockedCount
             recent = synchronized(BlockerVpnService.lastBlocked) { BlockerVpnService.lastBlocked.toList() }
+            focusLeft = (BlockList.focusUntil(ctx) - System.currentTimeMillis()).coerceAtLeast(0)
+            activeNow = BlockList.activeNow(ctx)
             delay(1000)
         }
     }
+    val locked = focusLeft > 0
+    /** Exécute une action « qui affaiblit » le blocage : interdite en mode focus, protégée par PIN sinon. */
+    fun guarded(action: () -> Unit) { if (locked) return; if (hasPin) { pinEntry = ""; pinErr = false; pinPrompt = action } else action() }
     fun start() { ctx.startService(Intent(ctx, BlockerVpnService::class.java)); on = true }
-    val vpnReq = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { if (it.resultCode == Activity.RESULT_OK) start() }
-    fun saveCustom(s: Set<String>) { custom = s; prefs(ctx).edit().putStringSet("bl_custom", s).apply() }
-    fun savePresets(s: Set<String>) { presets = s; prefs(ctx).edit().putStringSet("bl_presets", s).apply() }
+    var afterVpn by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val vpnReq = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { if (it.resultCode == Activity.RESULT_OK) { start(); afterVpn?.invoke(); afterVpn = null } }
+    fun ensureVpn(then: () -> Unit = {}) { val i = VpnService.prepare(ctx); if (i != null) { afterVpn = then; vpnReq.launch(i) } else { start(); then() } }
+    fun saveCustom(s: Set<String>) { custom = s; p.edit().putStringSet("bl_custom", s).apply() }
+    fun savePresets(s: Set<String>) { presets = s; p.edit().putStringSet("bl_presets", s).apply() }
+
+    pinPrompt?.let { act ->
+        AlertDialog({ pinPrompt = null }, title = { Text("🔒 Code du bloqueur") },
+            text = { Column {
+                OutlinedTextField(pinEntry, { pinEntry = it }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword))
+                if (pinErr) Text("Code incorrect", color = MaterialTheme.colorScheme.error)
+            } },
+            confirmButton = { TextButton(onClick = { if (sha256("bl:$pinEntry") == p.getString("bl_pin", "")) { pinPrompt = null; act() } else pinErr = true }) { Text("OK") } },
+            dismissButton = { TextButton(onClick = { pinPrompt = null }) { Text("Annuler") } })
+    }
 
     LazyColumn(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(if (on) "🛡️ Blocage actif" else "Blocage désactivé", style = MaterialTheme.typography.titleLarge)
+                        Text(when { !on -> "Blocage désactivé"; activeNow -> "🛡️ Blocage actif"; else -> "⏸️ Hors planning" }, style = MaterialTheme.typography.titleLarge)
                         Text("${BlockList.all(ctx).size} domaines • $count requêtes bloquées", color = MaterialTheme.colorScheme.outline)
                     }
-                    Switch(on, { want ->
-                        if (want) { val i = VpnService.prepare(ctx); if (i != null) vpnReq.launch(i) else start() }
-                        else { ctx.startService(Intent(ctx, BlockerVpnService::class.java).setAction(BlockerVpnService.STOP)); on = false }
-                    })
+                    Switch(on, { want -> if (want) ensureVpn() else guarded { ctx.startService(Intent(ctx, BlockerVpnService::class.java).setAction(BlockerVpnService.STOP)); on = false } }, enabled = !locked)
                 }
             }
-            Text("Fonctionne via un VPN local : aucune donnée ne quitte ton téléphone. Si un site passe quand même, désactive « DNS privé » dans les réglages Android et « DNS sécurisé » dans Chrome.",
+            // ---- Mode focus
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (locked) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("🎯 Mode focus", style = MaterialTheme.typography.titleMedium)
+                    if (locked) {
+                        Text("%d:%02d:%02d".format(focusLeft / 3_600_000, focusLeft / 60_000 % 60, focusLeft / 1000 % 60), fontSize = 40.sp)
+                        Text("Blocage verrouillé jusqu'à la fin : impossible de le couper ou de retirer des sites. Courage ! 💪", style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        Text("Bloque la liste sans pouvoir l'arrêter avant la fin.", style = MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { listOf(25, 60, 120, 240, 480).forEach { m -> FilterChip(focusMin == m, { focusMin = m }, label = { Text(if (m < 60) "$m min" else "${m / 60} h") }) } }
+                        Button(onClick = { ensureVpn { p.edit().putLong("bl_focus_until", System.currentTimeMillis() + focusMin * 60_000L).apply() } }) { Text("🚀 Lancer le focus") }
+                    }
+                }
+            }
+            // ---- Planning
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("🗓️ Planning de blocage", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                        Switch(schedOn, { v -> val apply = { schedOn = v; p.edit().putBoolean("bl_sched_on", v).apply() }; if (v) apply() else apply() }, enabled = !locked)
+                    }
+                    Text(if (schedOn) "Le blocage ne s'applique que pendant ces plages (le bloqueur doit être activé)." else "Désactivé : le blocage s'applique tout le temps.", style = MaterialTheme.typography.bodySmall)
+                    val dayNames = listOf("L", "M", "M", "J", "V", "S", "D")
+                    sched.forEach { sl ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Row { (1..7).forEach { d ->
+                                    val sel = d.toString() in sl.optString("days")
+                                    Text(dayNames[d - 1], Modifier.padding(2.dp).clickable(enabled = !locked) {
+                                        val nd = if (sel) sl.optString("days").replace(d.toString(), "") else sl.optString("days") + d
+                                        saveSched(sched.map { if (it === sl) it.with("days", nd) else it })
+                                    }.padding(4.dp), color = if (sel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, fontWeight = if (sel) androidx.compose.ui.text.font.FontWeight.Bold else null)
+                                } }
+                                Row {
+                                    TimeButton("De", sl.optString("start")) { v -> saveSched(sched.map { if (it === sl) it.with("start", v) else it }) }
+                                    Spacer(Modifier.width(6.dp))
+                                    TimeButton("à", sl.optString("end")) { v -> saveSched(sched.map { if (it === sl) it.with("end", v) else it }) }
+                                }
+                            }
+                            TextButton(onClick = { guarded { saveSched(sched - sl) } }, enabled = !locked) { Text("✕") }
+                        }
+                    }
+                    TextButton(onClick = { saveSched(sched + org.json.JSONObject().put("id", System.nanoTime()).put("days", "12345").put("start", "09:00").put("end", "18:00")) }) { Text("+ Ajouter une plage") }
+                }
+            }
+            // ---- PIN
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("🔒 Protection par code", style = MaterialTheme.typography.titleMedium)
+                    if (hasPin) {
+                        Text("Un code est demandé pour désactiver le blocage, retirer un site ou une catégorie.", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { guarded { p.edit().remove("bl_pin").apply(); hasPin = false } }, enabled = !locked) { Text("Supprimer le code") }
+                    } else Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(newPin, { newPin = it }, Modifier.weight(1f), label = { Text("Nouveau code (4+ chiffres)") }, singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword))
+                        TextButton(onClick = { if (newPin.length >= 4) { p.edit().putString("bl_pin", sha256("bl:$newPin")).apply(); hasPin = true; newPin = "" } }) { Text("Définir") }
+                    }
+                }
+            }
+            Text("Fonctionne via un VPN local : aucune donnée ne quitte ton téléphone. Si un site passe quand même, désactive « DNS privé » dans les réglages Android et « DNS sécurisé » dans Chrome. Astuce : active « VPN permanent » pour Toolbox dans Réglages > Réseau > VPN.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
             Text("Catégories", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
         }
-        items(BlockList.presets.keys.toList()) { p ->
+        items(BlockList.presets.keys.toList()) { pr ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(p)
-                    Text(BlockList.presets[p]!!.take(4).joinToString(", ") + "…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    Text(pr)
+                    Text(BlockList.presets[pr]!!.take(4).joinToString(", ") + "…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                 }
-                Switch(p in presets, { savePresets(if (it) presets + p else presets - p) })
+                Switch(pr in presets, { if (it) savePresets(presets + pr) else guarded { savePresets(presets - pr) } }, enabled = !(locked && pr in presets))
             }
         }
         item {
@@ -220,7 +322,7 @@ fun BlockerScreen() {
             Text("Les sous-domaines sont aussi bloqués (m.site.com, www.site.com…).", style = MaterialTheme.typography.bodySmall)
         }
         items(custom.sorted()) { d ->
-            ListItem(headlineContent = { Text(d) }, trailingContent = { TextButton(onClick = { saveCustom(custom - d) }) { Text("✕") } })
+            ListItem(headlineContent = { Text(d) }, trailingContent = { if (!locked) TextButton(onClick = { guarded { saveCustom(custom - d) } }) { Text("✕") } })
         }
         if (recent.isNotEmpty()) {
             item { Text("Derniers blocages", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp)) }

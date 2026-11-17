@@ -63,7 +63,11 @@ private val dtFmt = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            loadList(ctx, "reminders").forEach { scheduleReminder(ctx, it) }; return
+            loadList(ctx, "reminders").forEach { scheduleReminder(ctx, it) }
+            if (prefs(ctx).getString("limits", "{}") != "{}") scheduleLimitChecks(ctx)
+            if (prefs(ctx).getBoolean("bl_on", false) && android.net.VpnService.prepare(ctx) == null)
+                runCatching { ctx.startService(Intent(ctx, BlockerVpnService::class.java)) }
+            return
         }
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(NotificationChannel("reminders", "Rappels", NotificationManager.IMPORTANCE_HIGH))
