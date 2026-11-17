@@ -19,7 +19,7 @@ Application Android (Kotlin + Jetpack Compose, Material 3) regroupant **117 outi
 
 ## Installer
 - **GitHub Actions** : chaque push construit l'APK → onglet *Actions* → dernier run → artefact `toolbox-apk`.
-- **Local** : `./gradlew assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`
+- **Local** : `./gradlew assembleRelease` → `app/build/outputs/apk/release/app-release.apk`
 
 Android 8.0+ requis. Autoriser « installation depuis des sources inconnues » pour installer l'APK.
 

@@ -1,0 +1,3 @@
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn javax.annotation.**
+-keep class com.pierrick.toolbox.** { *; }
